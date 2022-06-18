@@ -3,15 +3,15 @@ module.exports = {
     browser: false,
     es2021: true,
     mocha: true,
-    node: true,
+    node: true
   },
-  plugins: ["@typescript-eslint"],
+  plugins: ['@typescript-eslint'],
   extends: [
-    "standard"
+    'standard'
   ],
-  parser: "@typescript-eslint/parser",
+  parser: '@typescript-eslint/parser',
   parserOptions: {
-    ecmaVersion: 12,
+    ecmaVersion: 12
   },
   rules: {
   }

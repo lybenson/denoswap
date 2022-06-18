@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0
 
-pragma solidity >=0.7.0 <0.9.0;
+pragma solidity ^0.8.4;
 
 import './interfaces/IDenoswapPair.sol';
 
@@ -14,7 +14,7 @@ contract DenoswapPair is IDenoswapPair {
 
   // 初始化方法，部署时由工厂合约调用一次
   function initialize(address _token0, address _token1) external {
-      require(msg.sender == factory, 'UniswapV2: FORBIDDEN'); // sufficient check
+      require(msg.sender == factory, 'sender not factory');
       token0 = _token0;
       token1 = _token1;
   }
