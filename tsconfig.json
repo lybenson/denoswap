@@ -20,5 +20,5 @@
   },
   "include": ["./scripts", "./test", "./typechain"],
   "files": ["./hardhat.config.ts"],
-  "references": [{ "path": "./tsconfig.node.json" }]
+  // "references": [{ "path": "./tsconfig.node.json" }]
 }
