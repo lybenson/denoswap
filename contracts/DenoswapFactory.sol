@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0
 
-pragma solidity ^0.8.4;
+pragma solidity =0.5.16;
 
 import './interfaces/IDenoswapFactory.sol';
 import './DenoswapPair.sol';
@@ -17,9 +17,9 @@ contract DenoswapFactory is IDenoswapFactory{
   // 所有配对合约的地址
   address[] public allPairs;
 
-  // event PairCreated(address indexed token0, address indexed token1, address pair, uint);
+  event PairCreated(address indexed token0, address indexed token1, address pair, uint);
 
-  constructor(address _feeToSetter) {
+  constructor(address _feeToSetter) public {
     feeToSetter = _feeToSetter;
   }
 
