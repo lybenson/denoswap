@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0
 
-pragma solidity =0.5.16;
+pragma solidity ^0.8.4;
 
 import './interfaces/IDenoswapPair.sol';
 import './interfaces/IDenoswapFactory.sol';
@@ -23,10 +23,13 @@ contract DenoswapPair is IDenoswapPair, DenoswapERC20 {
   address public token0;
   address public token1;
 
+  // 交易池中token的数量
   uint112 private reserve0;           // uses single storage slot, accessible via getReserves
   uint112 private reserve1;           // uses single storage slot, accessible via getReserves
+
   uint32  private blockTimestampLast; // uses single storage slot, accessible via getReserves
 
+  // 交易价格
   uint public price0CumulativeLast;
   uint public price1CumulativeLast;
   uint public kLast; // reserve0 * reserve1, as of immediately after the most recent liquidity event
@@ -110,23 +113,24 @@ contract DenoswapPair is IDenoswapPair, DenoswapERC20 {
     }
   }
 
-  // 铸造 LP token
+  // 铸造 LP token 给 地址to
   function mint(address to) external lock returns (uint liquidity) {
     // 获取储备量
     (uint112 _reserve0, uint112 _reserve1,) = getReserves(); // gas savings
 
-    // 获取 token 余额
+    // 获取配对合约地址在token中的余额
     uint balance0 = IERC20(token0).balanceOf(address(this));
     uint balance1 = IERC20(token1).balanceOf(address(this));
 
     // 配对token数量
-    // amount = 余额 - 储备量
+    // TODO: 为什么
+    // amount = 余额 - 储备量???
     uint amount0 = balance0.sub(_reserve0);
     uint amount1 = balance1.sub(_reserve1);
 
     bool feeOn = _mintFee(_reserve0, _reserve1);
 
-    // 获取 交易对所对应的配对合约所产生的 LP token总供应
+    // 获取 交易对所对应的配对合约所产生的 LP token 已供应量
     uint _totalSupply = totalSupply;
 
     // 值为0, 表示未铸造过，即首次提供流动性
@@ -170,9 +174,15 @@ contract DenoswapPair is IDenoswapPair, DenoswapERC20 {
     emit Burn(msg.sender, amount0, amount1, to);
   }
 
-  // this low-level function should be called from a contract which performs important safety checks
+  // 兑换token
+  // 般通过路由合约调用,
+  // amount0Out：token0要交换出的数额
+  // amount1Out：token1要交换出的数额
+  // to：交换token要发到的地址，一般是其它pair合约地址
+  // data用于闪电贷回调使用
   function swap(uint amount0Out, uint amount1Out, address to, bytes calldata data) external lock {
     require(amount0Out > 0 || amount1Out > 0, 'Denoswap: INSUFFICIENT_OUTPUT_AMOUNT');
+    // 获取储备量
     (uint112 _reserve0, uint112 _reserve1,) = getReserves(); // gas savings
     require(amount0Out < _reserve0 && amount1Out < _reserve1, 'Denoswap: INSUFFICIENT_LIQUIDITY');
 
