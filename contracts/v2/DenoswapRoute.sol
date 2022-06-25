@@ -29,7 +29,13 @@ contract DenoswapRoute {
   ) external virtual ensure(deadline) returns (uint amountA, uint amountB, uint liquidity){
     (amountA, amountB) = _addLiquidity(tokenA, tokenB, amountADesired, amountBDesired, amountAMin, amountBMin);
 
-    
+    // 获取配对合约地址
+    address pair = UniswapV2Library.pairFor(factory, tokenA, tokenB);
+
+    // 
+    TransferHelper.safeTransferFrom(tokenA, msg.sender, pair, amountA);
+    TransferHelper.safeTransferFrom(tokenB, msg.sender, pair, amountB);
+    liquidity = IUniswapV2Pair(pair).mint(to);
   }
 
   function _addLiquidity(
