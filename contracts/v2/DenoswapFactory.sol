@@ -12,6 +12,8 @@ contract DenoswapFactory is IDenoswapFactory{
   address public feeToSetter;
 
   // 配对映射
+  // tokenA => (tokenB => pair)
+  // tokenB => (tokenA => pair)
   mapping(address => mapping(address => address)) public getPair;
 
   // 所有配对合约的地址
