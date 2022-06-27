@@ -6,6 +6,7 @@ import './libraries/DenoswapUtil.sol';
 import './libraries/TransferHelper.sol';
 import './interfaces/IDenoswapPair.sol';
 import './interfaces/IDenoswapFactory.sol';
+import './interfaces/IWETH.sol';
 
 contract DenoswapRoute {
   address public immutable factory;
@@ -42,8 +43,44 @@ contract DenoswapRoute {
     TransferHelper.safeTransferFrom(tokenA, msg.sender, pair, amountA);
     TransferHelper.safeTransferFrom(tokenB, msg.sender, pair, amountB);
 
-    // 调用配对合约的mint方法
+    // 调用配对合约的mint方法, to是铸造的 lp token 给予的地址
     liquidity = IDenoswapPair(pair).mint(to);
+  }
+
+  // 添加ETH交易对流动性
+  function addLiquidityETH(
+    address token,
+    uint amountTokenDesired,
+    uint amountTokenMin,
+    uint amountETHMin,
+    address to,
+    uint deadline
+  ) external virtual payable ensure(deadline) returns(uint amountToken, uint amountETH, uint liquidity) {
+    (amountToken, amountETH) = _addLiquidity(
+      token,
+      WETH,
+      amountTokenDesired,
+      msg.value,
+      amountTokenMin,
+      amountETHMin
+    );
+    address pair = DenoswapUtil.pairFor(factory, token, WETH);
+
+    // 发送 token 到配对合约账户
+    TransferHelper.safeTransferFrom(token, msg.sender, pair, amountToken);
+
+    // 存入 eth 到 WETH
+    IWETH(WETH).deposit{value: amountETH}();
+
+    // 将 WETH 存入配对合约地址
+    assert(IWETH(WETH).transfer(pair, amountETH));
+
+    // 铸造 lp token
+    liquidity = IDenoswapPair(pair).mint(to);
+
+    if (msg.value > amountETH) {
+      TransferHelper.safeTransferETH(msg.sender, msg.value - amountETH);
+    }
   }
 
   function _addLiquidity(
@@ -54,6 +91,7 @@ contract DenoswapRoute {
     uint amountAMin,
     uint amountBMin
   ) internal virtual returns (uint amountA, uint amountB) {
+    // 判断配对合约是否存在
     if (IDenoswapFactory(factory).getPair(tokenA, tokenB) == address(0)) {
       IDenoswapFactory(factory).createPair(tokenA, tokenB);
     }
@@ -66,16 +104,121 @@ contract DenoswapRoute {
     } else {
       // 计算tokenB需要提供的数量
       uint amountBOptimal = DenoswapUtil.quote(amountADesired, reserveA, reserveB);
-
+      
+      // tokenB 输入数量 > 应提供的数量, 就直接将使用应提供的数量
       if (amountBOptimal <= amountBDesired) {
         require(amountBOptimal >= amountBMin, 'DenoswapRoute: INSUFFICIENT_B_AMOUNT');
         (amountA, amountB) = (amountADesired, amountBOptimal);
       } else {
+        // tokenB的输入数量 < 应提供的数量, 则不改变 tokenB 的输入数量,重新计算 tokenA 应提供的数量
         uint amountAOptimal = DenoswapUtil.quote(amountBDesired, reserveB, reserveA);
         assert(amountAOptimal <= amountADesired);
         require(amountAOptimal >= amountAMin, 'UniswapV2Router: INSUFFICIENT_A_AMOUNT');
         (amountA, amountB) = (amountAOptimal, amountBDesired);
       }
+    }
+  }
+
+  // 移除流动性
+  function removeLiquidity(
+    address tokenA,
+    address tokenB,
+    uint liquidity,
+    uint amountAMin,
+    uint amountBMin,
+    address to,
+    uint deadline
+  ) public virtual ensure(deadline) returns (uint amountA, uint amountB) {
+    // 获取配对合约地址
+    address pair = DenoswapUtil.pairFor(factory, tokenA, tokenB);
+    // 将lp token 从用户地址发送到配对合约地址
+    IDenoswapPair(pair).transferFrom(msg.sender, pair, liquidity);
+    // 配对合约销毁 lp token, 并将配对池中的token发送到to地址
+    (uint amount0, uint amount1) = IDenoswapPair(pair).burn(to);
+
+    (address token0,) = DenoswapUtil.sortTokens(tokenA, tokenB);
+    (amountA, amountB) = tokenA == token0 ? (amount0, amount1) : (amount1, amount0);
+
+    require(amountA >= amountAMin, 'DenoswapRoute: INSUFFICIENT_A_AMOUNT');
+    require(amountB >= amountBMin, 'DenoswapRoute: INSUFFICIENT_B_AMOUNT');
+  }
+
+  // 移除ETH流动性
+  function removeLiquidityETH(
+    address token,
+    uint liquidity,
+    uint amountTokenMin,
+    uint amountETHMin,
+    address to,
+    uint deadline
+  ) public virtual ensure(deadline) returns (uint amountToken, uint amountETH) {
+    (amountToken, amountETH) = removeLiquidity(
+        token,
+        WETH,
+        liquidity,
+        amountTokenMin,
+        amountETHMin,
+        address(this),
+        deadline
+    );
+    // 将token发送到 to 地址
+    TransferHelper.safeTransfer(token, to, amountToken);
+    // 从WERTH取出ETH
+    IWETH(WETH).withdraw(amountETH);
+    // 将ETH发送到 to 地址
+    TransferHelper.safeTransferETH(to, amountETH);
+  }
+
+  // 带签名的移除流动性
+  function removeLiquidityWithPermit(
+      address tokenA,
+      address tokenB,
+      uint liquidity,
+      uint amountAMin,
+      uint amountBMin,
+      address to,
+      uint deadline,
+      bool approveMax, uint8 v, bytes32 r, bytes32 s
+  ) external virtual returns (uint amountA, uint amountB) {
+    // 获取 pair 合约地址
+    address pair = DenoswapUtil.pairFor(factory, tokenA, tokenB);
+
+    // 如果全部批准,value 值为最大的 uint256, 否则等于流动性
+    uint value = approveMax ? type(uint).max : liquidity;
+    // 调用pair合约的许可方法, 批准 address(this) 可以操作 msg.sender 的token(避免两步交易都交gas)
+    IDenoswapPair(pair).permit(msg.sender, address(this), value, deadline, v, r, s);
+
+    // 移除流动性
+    (amountA, amountB) = removeLiquidity(tokenA, tokenB, liquidity, amountAMin, amountBMin, to, deadline);
+  }
+  function removeLiquidityETHWithPermit(
+    address token,
+    uint liquidity,
+    uint amountTokenMin,
+    uint amountETHMin,
+    address to,
+    uint deadline,
+    bool approveMax, uint8 v, bytes32 r, bytes32 s
+  ) external virtual returns (uint amountToken, uint amountETH) {
+    address pair = DenoswapUtil.pairFor(factory, token, WETH);
+    uint value = approveMax ? type(uint).max : liquidity;
+    IDenoswapPair(pair).permit(msg.sender, address(this), value, deadline, v, r, s);
+    (amountToken, amountETH) = removeLiquidityETH(token, liquidity, amountTokenMin, amountETHMin, to, deadline);
+  }
+
+  // token交换方法
+  // 
+  // path 表示交换经历过的token的地址
+  // 如 aDai => WETH => WBTC => EOS
+  // 则path = [address(aDai), address(WETH), address(WBTC), address(EOS)]
+  function _swap(
+    uint[] memory amounts,
+    address[] memory path,
+    address _to
+  ) internal virtual {
+    for (uint i; i < path.length - 1; i++) {
+      (address input, address output) = (path[i], path[i + 1]);
+      (address token0,) = DenoswapUtil.sortTokens(input, output);
     }
   }
 }

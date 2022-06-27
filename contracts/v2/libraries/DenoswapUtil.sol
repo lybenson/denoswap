@@ -24,13 +24,15 @@ library DenoswapUtil {
     address tokenB
   ) internal pure returns(address pair) {
     (address token0, address token1) = sortTokens(tokenA, tokenB);
+
+    // 计算create2合约地址
+    // TODO 如何计算你的
     pair = address(uint(keccak256(abi.encodePacked(
-      abi.encodePacked(
-        hex'ff',
-        factory,
-        keccak256((abi.encodePacked(token0, token1))),
-        hex'96e8ac4277198ff8b6f785478aa9a39f403cb768dd02cbee326c3e7da348845f'
-      )
+      hex'ff',
+      factory,
+      keccak256((abi.encodePacked(token0, token1))),
+      // 配对合约的bytecode的keccak256
+      hex'96e8ac4277198ff8b6f785478aa9a39f403cb768dd02cbee326c3e7da348845f'
     ))));
   }
 
@@ -42,9 +44,14 @@ library DenoswapUtil {
     (reserveA, reserveB) = tokenA == token0 ? (reserve0, reserve1) : (reserve1, reserve0);
   }
 
+  // 根据提供的 tokenA 的数量以及 tokenA 和 tokenB 的储备量计算需要提供的 tokenB 的数量
   function quote(uint amountA, uint reserveA, uint reserveB) internal pure returns (uint amountB) {
     require(amountA > 0, 'DenoswapUtil: INSUFFICIENT_AMOUNT');
     require(reserveA > 0 && reserveB > 0, 'DenoswapUtil: INSUFFICIENT_LIQUIDITY');
+
+    // 提供的tokenA数量 * tokenB的储备量 / tokenA的储备量
+    // reserveA / reserveB =  amountA / amountB 保证对价关系
+    // amountB = amountA * reserveB / reserveA
     amountB = amountA.mul(reserveB) / reserveA;
   }
 
