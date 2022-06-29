@@ -207,7 +207,7 @@ contract DenoswapRoute {
   }
 
   // token交换方法
-  // 
+  // amounts 表示交换token的数量
   // path 表示交换经历过的token的地址
   // 如 aDai => WETH => WBTC => EOS
   // 则path = [address(aDai), address(WETH), address(WBTC), address(EOS)]
@@ -217,8 +217,64 @@ contract DenoswapRoute {
     address _to
   ) internal virtual {
     for (uint i; i < path.length - 1; i++) {
+      // 获取token
       (address input, address output) = (path[i], path[i + 1]);
       (address token0,) = DenoswapUtil.sortTokens(input, output);
+
+      // 获取输出数量 => (输出金额, 0) 或 (0, 输出金额)
+      uint amountOut = amounts[i + 1];
+      (uint amount0Out, uint amount1Out) = input == token0 ? (uint(0), amountOut) : (amountOut, uint(0));
+
+      // 获取下一个配对合约地址
+      address to = i < path.length - 2 ? DenoswapUtil.pairFor(factory, output, path[i + 2]) : _to;
+
+      // 调用swap方法进行交换
+      IDenoswapPair(DenoswapUtil.pairFor(factory, input, output)).swap(amount0Out, amount1Out, to, new bytes(0));
     }
+  }
+
+  // 根据一定数量的token交换尽可能多的token(根据输入求输出)
+  // 如 aDai => WETH => WBTC => EOS
+  // 用 1 个aDai作为输入数额，此时 amountIn = 1
+  // 经过计算后返回交换的路径上的token的最大数量
+  function swapExactTokensForTokens(
+    uint amountIn,
+    uint amountOutMin,
+    address[] calldata path,
+    address to,
+    uint deadline
+  ) external virtual ensure(deadline) returns(uint[] memory amounts) {
+    // 获取路径上 token 的可交换的数量
+    amounts = DenoswapUtil.getAmountsOut(factory, amountIn, path);
+    require(amounts[amounts.length - 1] >= amountOutMin, 'DenoswapRoute: INSUFFICIENT_OUTPUT_AMOUNT');
+
+    // 将第一个 token 从用户地址转移到 第一个配对合约地址
+    TransferHelper.safeTransferFrom(path[0], msg.sender, DenoswapUtil.pairFor(factory, path[0], path[1]), amounts[0]);
+
+    _swap(amounts, path, to);
+  }
+
+  // 根据输出求输入
+  // 如 aDai => WETH => WBTC => EOS
+  // 根据 EOS 的数量去计算前面 token 的数量
+  function swapTokensForExactTokens(
+    uint amountOut,
+    uint amountInMax,
+    address[] calldata path,
+    address to,
+    uint deadline
+  ) external virtual ensure(deadline) returns(uint[] memory amounts) {
+    // 计算路径上 token 的数量
+    amounts = DenoswapUtil.getAmountsIn(factory, amountOut, path);
+    require(amounts[0] <= amountInMax, 'DenoswapRoute: EXCESSIVE_INPUT_AMOUNT');
+
+    // 将第一个 token 从用户地址转移到 第一个配对合约地址
+    TransferHelper.safeTransferFrom(
+      path[0],
+      msg.sender,
+      DenoswapUtil.pairFor(factory, path[0], path[1]),
+      amounts[0]
+    );
+    _swap(amounts, path, to);
   }
 }

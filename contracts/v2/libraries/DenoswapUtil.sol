@@ -55,38 +55,70 @@ library DenoswapUtil {
     amountB = amountA.mul(reserveB) / reserveA;
   }
 
+  // 配对合约中的两个 token 的储备量 reserveIn 和 reserveOut
+  // 输入其中一个 token 的 amountIn 数量 , 可以获得另一个 token 的数量
+  // 假设有交易对 aDai => WETH, 储备量是 2000 aDai  2 WETH
+  // 此时用 1000个 aDai 去兑换 WETH, 可以兑换多少 WETH 则由该方法计算
   function getAmountOut(uint amountIn, uint reserveIn, uint reserveOut) internal pure returns (uint amountOut) {
     require(amountIn > 0, 'DenoswapUtil: INSUFFICIENT_INPUT_AMOUNT');
     require(reserveIn > 0 && reserveOut > 0, 'UniswapV2Library: INSUFFICIENT_LIQUIDITY');
+
+    // reserveIn * reserveOut = (reserveIn + amountIn) * (reserveOut - amountOut)
+    // amountOut = (amountIn * reserveOut) / (reserveIn + amountIn)
+    // amountOut = (amountIn * reserveOut) * 1000 / (reserveIn + amountIn) * 1000
+    // amountOut = amountIn * 1000 * reserveOut / (reserveIn * 1000 + amountIn * 1000)
+
+    // 计算税后的输入数量 1000 * 0.997 = 997,即实际只能用997个aDai去兑换
+    // 此处 乘以 997 是为了小数计算方便 amountInWithFee = 997000
     uint amountInWithFee = amountIn.mul(997);
+    // 计算分子: 实际用于兑换的数量 * 储备量, 即 997000 * 2 = 1994000
     uint numerator = amountInWithFee.mul(reserveOut);
+    // 计算分母: 储备量In * 1000 + 实际用于兑换的数量, 即 2000 * 1000 + 997 = 2000997
     uint denominator = reserveIn.mul(1000).add(amountInWithFee);
+
+    // 可兑换数量 = 分子 / 分母 = 0.9965032
     amountOut = numerator / denominator;
   }
 
-  function getAmountIn(uint amountOut, uint reserveIn, uint reserveOut) internal pure returns(uint amountIn){
+  // 同 getAmountOut
+  // amountOut: 路径上最后一个 token 的数量
+  // reserveIn, reserveOut: 交易对的储备量
+  function getAmountIn(uint amountOut, uint reserveIn, uint reserveOut) internal pure returns(uint amountIn) {
     require(amountOut > 0, 'DenoswapUtil: INSUFFICIENT_OUTPUT_AMOUNT');
-    require(reserveIn > 0 && reserveOut > 0, 'UniswapV2Library: INSUFFICIENT_LIQUIDITY');
+    require(reserveIn > 0 && reserveOut > 0, 'DenoswapUtil: INSUFFICIENT_LIQUIDITY');
+
+    // reserveIn * reserveOut = (reserveIn + amountIn) * (reserveOut - amountOut)
+    // reserveIn + amountIn = (reserveIn * reserveOut) / (reserveOut - amountOut)
+    // amountIn = [(reserveIn * reserveOut) / (reserveOut - amountOut)] - reserveIn
+    // amountIn = (reserveIn * amountOut) / (reserveOut - amountOut)
+
     uint numerator = reserveIn.mul(amountOut).mul(1000);
     uint denominator = reserveOut.sub(amountOut).mul(997);
     amountIn = (numerator / denominator).add(1);
   }
 
+  // 获取路径上token的可交换的数量(从前往后)
   function getAmountsOut(address factory, uint amountIn, address[] memory path) internal view returns (uint[] memory amounts) {
     require(path.length >= 2, 'DenoswapUtil: INVALID_PATH');
     amounts = new uint[](path.length);
     amounts[0] = amountIn;
+
+    // 遍历路径
     for (uint i; i < path.length - 1; i++) {
+      // 获取配对合约的交易对token的储备量
       (uint reserveIn, uint reserveOut) = getReserves(factory, path[i], path[i + 1]);
+      // 获取token可交换的数量
+      // 如 100aDai => ?wETH, ?即是需要getAmountOut计算的值
       amounts[i + 1] = getAmountOut(amounts[i], reserveIn, reserveOut);
     }
   }
 
-  // performs chained getAmountIn calculations on any number of pairs
+  // 获取路径上token的可交换的数量(从后往前)
   function getAmountsIn(address factory, uint amountOut, address[] memory path) internal view returns (uint[] memory amounts) {
     require(path.length >= 2, 'DenoswapUtil: INVALID_PATH');
     amounts = new uint[](path.length);
     amounts[amounts.length - 1] = amountOut;
+
     for (uint i = path.length - 1; i > 0; i--) {
       (uint reserveIn, uint reserveOut) = getReserves(factory, path[i - 1], path[i]);
       amounts[i - 1] = getAmountIn(amounts[i], reserveIn, reserveOut);
